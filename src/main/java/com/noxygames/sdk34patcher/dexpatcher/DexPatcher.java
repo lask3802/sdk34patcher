@@ -6,6 +6,7 @@ import org.jf.dexlib2.builder.instruction.BuilderInstruction35c;
 import org.jf.dexlib2.dexbacked.instruction.*;
 import org.jf.dexlib2.iface.*;
 import org.jf.dexlib2.iface.instruction.*;
+import org.jf.dexlib2.iface.instruction.formats.Instruction11n;
 import org.jf.dexlib2.immutable.*;
 import org.jf.dexlib2.immutable.instruction.*;
 import org.jf.dexlib2.immutable.reference.ImmutableMethodReference;
@@ -76,8 +77,15 @@ public class DexPatcher {
                 return instruction;
             case Format10x:
                 return instruction;
-            case Format11n:
-                return instruction;
+            case Format11n: {
+                Instruction11n inst1 = (Instruction11n) inst;
+                int registerA = inst1.getRegisterA();
+                if (registerA >= origRegisterCnt - parameters) {
+                    int newReg = registerA + expandCount;
+                    return new ImmutableInstruction11n(inst.getOpcode(), newReg, inst1.getNarrowLiteral());
+                }
+                break;
+            }
             case Format11x: {
                 int registerA = ((OneRegisterInstruction) inst).getRegisterA();
                 if (registerA >= origRegisterCnt - parameters) {
@@ -469,9 +477,12 @@ public class DexPatcher {
     private static MethodImplementation rewriteMethodImplementation(MethodImplementation impl, int parameters){
         List<Instruction> newInstructions = new ArrayList<>();
 
+        int currentOffset = 0;
+        int latestOffset = 0;
 
         for (Instruction instruction : impl.getInstructions()) {
-
+            currentOffset = latestOffset;
+            latestOffset = currentOffset + instruction.getCodeUnits();
             if (instruction.getOpcode() == Opcode.INVOKE_VIRTUAL) {
                 ReferenceInstruction refInstruction = (ReferenceInstruction) instruction;
                 DexBackedInstruction35c oldInstruction = (DexBackedInstruction35c) instruction;
@@ -485,31 +496,32 @@ public class DexPatcher {
                     int regE = oldInstruction.getRegisterE() >= impl.getRegisterCount()-1-parameters? oldInstruction.getRegisterE()+1:oldInstruction.getRegisterE();
 
                     //Check all branch before instruction
-                    for(int i = 0 ; i < newInstructions.size(); i ++){
+                    for(int i = 0, newInstOffset = 0 ; i < newInstructions.size(); i++){
                         Instruction inst = newInstructions.get(i);
                         if(inst.getOpcode() == Opcode.GOTO ){
 
                             DexBackedInstruction10t gotoInst =  (DexBackedInstruction10t)inst;
 
                             //jump over rewritten instruction
-                            if(gotoInst.getCodeOffset() +i > newInstructions.size()) {
+                            if(gotoInst.getCodeOffset() + newInstOffset > currentOffset) {
                                 newInstructions.set(i, new ImmutableInstruction10t(inst.getOpcode(), gotoInst.getCodeOffset() + 1));
                             }
                         }
 
                         if(inst instanceof DexBackedInstruction22t){
                             DexBackedInstruction22t inst22 = (DexBackedInstruction22t) inst;
-                            if(inst22.getCodeOffset() +i > newInstructions.size()) {
-                                newInstructions.set(i, new ImmutableInstruction22t(inst.getOpcode(), inst22.getRegisterA(), inst22.getRegisterB(), inst22.getCodeOffset()));
+                            if(inst22.getCodeOffset() + newInstOffset > currentOffset) {
+                                newInstructions.set(i, new ImmutableInstruction22t(inst.getOpcode(), inst22.getRegisterA(), inst22.getRegisterB(), inst22.getCodeOffset() + 1 ));
                             }
                         }
 
                         if(inst instanceof DexBackedInstruction21t){
                             DexBackedInstruction21t inst21 = (DexBackedInstruction21t) inst;
-                            if(inst21.getCodeOffset() +i > newInstructions.size()) {
-                                newInstructions.set(i, new ImmutableInstruction21t(inst.getOpcode(), inst21.getRegisterA(), inst21.getCodeOffset()));
+                            if(inst21.getCodeOffset() + newInstOffset > currentOffset) {
+                                newInstructions.set(i, new ImmutableInstruction21t(inst.getOpcode(), inst21.getRegisterA(), inst21.getCodeOffset() + 1 ));
                             }
                         }
+                        newInstOffset+=newInstructions.get(i).getCodeUnits();
                     }
 
                     newInstructions.add(new BuilderInstruction11n(Opcode.CONST_4,newRegister ,2));
@@ -539,6 +551,7 @@ public class DexPatcher {
 
 
             newInstructions.add(shiftParameterRegister(instruction, impl.getRegisterCount()-1, parameters, 1));
+
         }
         checkAndFixAlignment(impl.getClass().getName(), newInstructions );
         ImmutableMethodImplementation immutableMethodImplementation = new ImmutableMethodImplementation(
