@@ -58,6 +58,7 @@ public class DexPatcher {
 
     private static boolean shouldRewriteMethod(MethodImplementation impl) {
         if(impl == null) return false;
+        if(impl.getClass().getName().startsWith("com.google.android.play.core.assetpacks")) return false;
         for (Instruction instruction : impl.getInstructions()) {
             if (instruction.getOpcode() == Opcode.INVOKE_VIRTUAL) {
                 ReferenceInstruction refInstruction = (ReferenceInstruction) instruction;
